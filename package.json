@@ -1,6 +1,4 @@
 {
-  "name": "key-auth-api",
-  "dependencies": {
-    "@supabase/supabase-js": "^2.38.0"
-  }
+  "name": "test-api",
+  "dependencies": {}
 }
