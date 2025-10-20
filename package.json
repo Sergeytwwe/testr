@@ -1,11 +1,6 @@
 {
   "name": "key-auth-api",
-  "version": "1.0.0",
-  "main": "api/check-key.js",
   "dependencies": {
     "@supabase/supabase-js": "^2.38.0"
-  },
-  "engines": {
-    "node": ">=18.0.0"
   }
 }
