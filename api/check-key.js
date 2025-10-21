@@ -1,8 +1,13 @@
 const { createClient } = require('@supabase/supabase-js');
 
+// Проверяем переменные окружения
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+  console.error('Missing Supabase environment variables');
+}
+
 const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_ANON_KEY
+  process.env.SUPABASE_URL || '',
+  process.env.SUPABASE_ANON_KEY || ''
 );
 
 module.exports = async (req, res) => {
@@ -20,101 +25,56 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const { hwid, key, first_val, second_val } = req.body;
-
-    if (!hwid || !key || !first_val || !second_val) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    // Проверяем подключение к Supabase
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+      return res.status(500).json({ error: 'Server configuration error' });
     }
 
-    // Проверяем ключ в базе
+    const { hwid, key, first_val, second_val } = req.body;
+
+    if (!hwid || !key || first_val === undefined || second_val === undefined) {
+      return res.status(400).json({ error: 'Missing required fields: hwid, key, first_val, second_val' });
+    }
+
+    // Тестовый запрос к Supabase
     const { data: keyData, error } = await supabase
       .from('activation_keys')
       .select('*')
       .eq('key', key)
-      .eq('is_used', false)
-      .eq('expired', false)
+      .limit(1)
       .single();
 
-    if (error || !keyData) {
-      return res.status(401).json({ error: 'Invalid or expired key' });
+    if (error) {
+      console.error('Supabase error:', error);
+      // Если ключа нет, но ошибка не "not found"
+      if (error.code !== 'PGRST116') {
+        return res.status(500).json({ error: 'Database error: ' + error.message });
+      }
+      return res.status(401).json({ error: 'Invalid key' });
     }
 
-    // Проверяем срок действия
-    if (keyData.expires_at && new Date(keyData.expires_at) < new Date()) {
-      await supabase
-        .from('activation_keys')
-        .update({ expired: true })
-        .eq('key', key);
-      return res.status(401).json({ error: 'Key expired' });
+    if (!keyData) {
+      return res.status(401).json({ error: 'Key not found' });
     }
 
-    // Проверяем HWID
-    const { data: existingHwid } = await supabase
-      .from('key_activations')
-      .select('hwid')
-      .eq('key', key)
-      .neq('hwid', hwid)
-      .single();
-
-    if (existingHwid) {
-      return res.status(401).json({ error: 'Key already activated on different device' });
-    }
-
-    // Сохраняем активацию
-    const { error: activationError } = await supabase
-      .from('key_activations')
-      .upsert({
-        key: key,
-        hwid: hwid,
-        activated_at: new Date().toISOString(),
-        first_val: first_val,
-        second_val: second_val,
-        last_check: new Date().toISOString()
-      }, {
-        onConflict: 'key, hwid'
-      });
-
-    if (activationError) {
-      return res.status(500).json({ error: 'Activation failed' });
-    }
-
-    // Математическая проверка (анти-взлом)
+    // Простая успешная ответ для теста
     const newfirst_val = 3 * first_val * first_val + 7 * first_val - 19;
     const newsecond_val = 5 * second_val * second_val * second_val - 11 * second_val + 42;
-
-    // Расчет дней
-    let days_left = 'unlimited';
-    let is_dev = false;
-
-    if (keyData.expires_at) {
-      const expires = new Date(keyData.expires_at);
-      const now = new Date();
-      const diffTime = expires - now;
-      days_left = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      days_left = Math.max(0, days_left);
-    }
-
-    // Проверяем разработчика
-    const { data: creatorData } = await supabase
-      .from('user_levels')
-      .select('level')
-      .eq('user_id', keyData.created_by)
-      .single();
-
-    if (creatorData && creatorData.level === 3) {
-      is_dev = true;
-    }
 
     res.status(200).json({
       status: 'allow',
       newfirst_val: newfirst_val,
       newsecond_val: newsecond_val,
-      days: days_left,
-      is_dev: is_dev
+      days: 30,
+      is_dev: false,
+      message: 'API is working!'
     });
 
   } catch (error) {
-    console.error('Check key error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Global error:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: error.message 
+    });
   }
 };
